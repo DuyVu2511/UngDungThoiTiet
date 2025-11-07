@@ -12,16 +12,20 @@ import {
   FlatList,
   RefreshControl,
 } from "react-native";
+// Import SafeAreaView từ thư viện đúng
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AuthContext } from "../context/AuthContext";
 import api from "../services/api";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+// Import Gradient
 import { LinearGradient } from "expo-linear-gradient";
-import * as Location from "expo-location"; // F6: Cần Location
+// Import Location (F6)
+import * as Location from "expo-location";
 
 const WeatherScreen = ({ navigation, route }) => {
   // --- STATE VÀ CONTEXT ---
+  // Lấy userToken để kiểm tra Chế độ Khách
   const {
     userId,
     favorites,
@@ -29,6 +33,7 @@ const WeatherScreen = ({ navigation, route }) => {
     removeFavorite,
     theme,
     locationPermissionStatus,
+    userToken,
   } = useContext(AuthContext);
   const isDarkMode = theme === "dark";
   const [isInitialLoading, setIsInitialLoading] = useState(true);
@@ -40,9 +45,7 @@ const WeatherScreen = ({ navigation, route }) => {
   const debounceTimer = useRef(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [timeAgo, setTimeAgo] = useState("");
-
-  // <<< SỬA LỖI F6: Thêm state mới để theo dõi GPS >>>
-  const [isGpsLocation, setIsGpsLocation] = useState(false);
+  const [isGpsLocation, setIsGpsLocation] = useState(false); // State theo dõi GPS
 
   // --- HÀM LOGIC CHÍNH ---
 
@@ -56,9 +59,7 @@ const WeatherScreen = ({ navigation, route }) => {
       const now = Date.now();
       setLastUpdated(now);
       setSearchQuery(currentCityName);
-
-      // <<< SỬA LỖI F6: Đánh dấu đây là dữ liệu GPS >>>
-      setIsGpsLocation(true);
+      setIsGpsLocation(true); // Đánh dấu đây là dữ liệu GPS
 
       await AsyncStorage.setItem("lastCity", currentCityName);
       await AsyncStorage.setItem(
@@ -86,10 +87,11 @@ const WeatherScreen = ({ navigation, route }) => {
       const currentCityName = response.data.current.name;
       const now = Date.now();
       setLastUpdated(now);
-      api.post("/api/history", { userId: userId, cityName: currentCityName });
-
-      // <<< SỬA LỖI F6: Đánh dấu đây là dữ liệu TÌM KIẾM >>>
-      setIsGpsLocation(false);
+      // Chỉ lưu lịch sử nếu đã đăng nhập
+      if (userId) {
+        api.post("/api/history", { userId: userId, cityName: currentCityName });
+      }
+      setIsGpsLocation(false); // Đánh dấu đây là dữ liệu TÌM KIẾM
 
       await AsyncStorage.setItem("lastCity", currentCityName);
       await AsyncStorage.setItem(
@@ -105,121 +107,7 @@ const WeatherScreen = ({ navigation, route }) => {
     }
   };
 
-  // (useEffect 1: Logic khởi động - Ưu tiên GPS)
-  useEffect(() => {
-    const loadInitialData = async () => {
-      try {
-        const savedData = await AsyncStorage.getItem("lastWeatherData");
-        if (savedData) setWeatherData(JSON.parse(savedData));
-        const savedTimestamp = await AsyncStorage.getItem(
-          "lastUpdatedTimestamp"
-        );
-        if (savedTimestamp) setLastUpdated(JSON.parse(savedTimestamp));
-
-        let cityToLoad = "Hanoi";
-        setIsRefreshing(true);
-
-        if (locationPermissionStatus === "granted") {
-          try {
-            let location = await Location.getCurrentPositionAsync({
-              accuracy: Location.Accuracy.Balanced,
-            });
-            const { latitude, longitude } = location.coords;
-            await fetchWeatherByCoords(latitude, longitude, true);
-            return;
-          } catch (e) {
-            console.error("Lỗi lấy vị trí GPS:", e);
-            Alert.alert(
-              "Lỗi GPS",
-              "Không thể lấy vị trí. Tải thành phố đã lưu."
-            );
-          }
-        }
-
-        const savedCity = await AsyncStorage.getItem("lastCity");
-        cityToLoad = savedCity || "Hanoi";
-        setSearchQuery(cityToLoad);
-        await fetchWeather(cityToLoad, true);
-      } catch (e) {
-        console.error("Lỗi tải dữ liệu ban đầu:", e);
-        await fetchWeather("Hanoi", false);
-      } finally {
-        setIsInitialLoading(false);
-        setIsRefreshing(false);
-      }
-    };
-    if (locationPermissionStatus !== null) {
-      loadInitialData();
-    }
-  }, [locationPermissionStatus]);
-
-  // (useEffect 2: Lắng nghe điều hướng từ Yêu thích)
-  useEffect(() => {
-    if (route.params?.city) {
-      const cityFromFavorite = route.params.city;
-      setSearchQuery(cityFromFavorite);
-      fetchWeather(cityFromFavorite, false); // fetchWeather sẽ tự động set isGpsLocation(false)
-      navigation.setParams({ city: undefined });
-    }
-  }, [route.params?.city]);
-
-  // (useEffect 3: Cập nhật ngôi sao)
-  useEffect(() => {
-    if (weatherData && weatherData.current) {
-      const cityName = weatherData.current.name;
-      const checkFav = favorites.some((fav) => fav.city_name === cityName);
-      setIsFavorite(checkFav);
-    } else {
-      setIsFavorite(false);
-    }
-  }, [weatherData, favorites]);
-
-  // (useEffect 4: Tự động refresh 5 phút)
-  useEffect(() => {
-    const intervalId = setInterval(() => {
-      if (weatherData && weatherData.current && weatherData.current.name) {
-        // Tải lại theo tên (không phải GPS) để không làm phiền người dùng
-        fetchWeather(weatherData.current.name, true);
-      }
-    }, 300000);
-    return () => clearInterval(intervalId);
-  }, [weatherData]);
-
-  // (useEffect 5: Cập nhật "Time Ago")
-  useEffect(() => {
-    const updateTimeAgo = () => {
-      if (!lastUpdated) {
-        setTimeAgo("");
-        return;
-      }
-      const now = Date.now();
-      const minutesAgo = Math.round((now - lastUpdated) / 60000);
-      if (minutesAgo < 1) setTimeAgo("vừa xong");
-      else if (minutesAgo === 1) setTimeAgo("cập nhật 1 phút trước");
-      else if (minutesAgo < 60) setTimeAgo(`cập nhật ${minutesAgo} phút trước`);
-      else {
-        const hoursAgo = Math.floor(minutesAgo / 60);
-        setTimeAgo(`cập nhật ${hoursAgo} giờ trước`);
-      }
-    };
-    updateTimeAgo();
-    const intervalId = setInterval(updateTimeAgo, 60000);
-    return () => clearInterval(intervalId);
-  }, [lastUpdated]);
-
-  // (useMemo cho F4 và F3)
-  const dailyForecast = useMemo(() => {
-    if (!weatherData?.forecast?.list) return [];
-    return weatherData.forecast.list.filter((item) =>
-      item.dt_txt.includes("12:00:00")
-    );
-  }, [weatherData]);
-  const hourlyForecast = useMemo(() => {
-    if (!weatherData?.forecast?.list) return [];
-    return weatherData.forecast.list.slice(0, 8);
-  }, [weatherData]);
-
-  // (Các hàm logic còn lại)
+  // Hàm gọi API đề xuất (F11)
   const fetchSuggestions = async (text) => {
     try {
       const response = await api.get(`/api/suggest?q=${text}`);
@@ -229,6 +117,10 @@ const WeatherScreen = ({ navigation, route }) => {
       setSuggestions([]);
     }
   };
+
+  // --- HÀM XỬ LÝ UI ---
+
+  // Xử lý gõ (Debounce)
   const onSearchTextChange = (text) => {
     setSearchQuery(text);
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
@@ -240,22 +132,44 @@ const WeatherScreen = ({ navigation, route }) => {
       fetchSuggestions(text);
     }, 200);
   };
+
+  // Xử lý nhấn đề xuất
   const onSuggestionPress = (city) => {
     setSearchQuery(city.name);
     setSuggestions([]);
     fetchWeather(city.name, false);
   };
+
+  // Xử lý nhấn Tìm kiếm
   const handleSearch = () => {
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     setSuggestions([]);
     fetchWeather(searchQuery, false);
   };
+
+  // Xử lý Refresh thủ công
   const handleManualRefresh = () => {
     if (weatherData && weatherData.current) {
       fetchWeather(weatherData.current.name, false);
     }
   };
+
+  // Xử lý Toggle Yêu thích (Kiểm tra Chế độ Khách)
   const handleToggleFavorite = async () => {
+    // 1. KIỂM TRA KHÁCH (nếu userToken là null)
+    if (!userToken) {
+      Alert.alert(
+        "Cần đăng nhập",
+        "Bạn phải đăng nhập để sử dụng chức năng này.",
+        [
+          { text: "Để sau" },
+          { text: "Đăng nhập", onPress: () => navigation.navigate("Login") }, // Mở modal Đăng nhập
+        ]
+      );
+      return; // Dừng hàm
+    }
+
+    // 2. Logic cũ (nếu đã đăng nhập)
     if (!weatherData) return;
     const cityName = weatherData.current.name;
     try {
@@ -272,10 +186,8 @@ const WeatherScreen = ({ navigation, route }) => {
       else Alert.alert("Lỗi", "Thao tác thất bại, vui lòng thử lại.");
     }
   };
-  const getWeatherIcon = (iconCode) =>
-    `https://openweathermap.org/img/wn/${iconCode}@4x.png`;
 
-  // (Hàm onRefresh (Pull-to-Refresh) - Ưu tiên GPS)
+  // F5/F6: Hàm onRefresh cho Pull-to-Refresh (Ưu tiên GPS)
   const onRefresh = React.useCallback(() => {
     if (locationPermissionStatus === "granted") {
       Location.getCurrentPositionAsync({})
@@ -299,6 +211,121 @@ const WeatherScreen = ({ navigation, route }) => {
       }
     }
   }, [weatherData, locationPermissionStatus]);
+
+  // Hàm lấy icon
+  const getWeatherIcon = (iconCode) =>
+    `https://openweathermap.org/img/wn/${iconCode}@4x.png`;
+
+  // --- USEMEMO (Dự báo) ---
+  const dailyForecast = useMemo(() => {
+    if (!weatherData?.forecast?.list) return [];
+    return weatherData.forecast.list.filter((item) =>
+      item.dt_txt.includes("12:00:00")
+    );
+  }, [weatherData]);
+  const hourlyForecast = useMemo(() => {
+    if (!weatherData?.forecast?.list) return [];
+    return weatherData.forecast.list.slice(0, 8);
+  }, [weatherData]);
+
+  // --- USEEFFECTS ---
+  // (F6: Logic khởi động)
+  useEffect(() => {
+    const loadInitialData = async () => {
+      try {
+        const savedData = await AsyncStorage.getItem("lastWeatherData");
+        if (savedData) setWeatherData(JSON.parse(savedData));
+        const savedTimestamp = await AsyncStorage.getItem(
+          "lastUpdatedTimestamp"
+        );
+        if (savedTimestamp) setLastUpdated(JSON.parse(savedTimestamp));
+        let cityToLoad = "Hanoi";
+        setIsRefreshing(true);
+        if (locationPermissionStatus === "granted") {
+          try {
+            let location = await Location.getCurrentPositionAsync({
+              accuracy: Location.Accuracy.Balanced,
+            });
+            const { latitude, longitude } = location.coords;
+            await fetchWeatherByCoords(latitude, longitude, true);
+            return;
+          } catch (e) {
+            console.error("Lỗi lấy vị trí GPS:", e);
+            Alert.alert(
+              "Lỗi GPS",
+              "Không thể lấy vị trí. Tải thành phố đã lưu."
+            );
+          }
+        }
+        const savedCity = await AsyncStorage.getItem("lastCity");
+        cityToLoad = savedCity || "Hanoi";
+        setSearchQuery(cityToLoad);
+        await fetchWeather(cityToLoad, true);
+      } catch (e) {
+        console.error("Lỗi tải dữ liệu ban đầu:", e);
+        await fetchWeather("Hanoi", false);
+      } finally {
+        setIsInitialLoading(false);
+        setIsRefreshing(false);
+      }
+    };
+    if (locationPermissionStatus !== null) {
+      loadInitialData();
+    }
+  }, [locationPermissionStatus]);
+
+  // (Lắng nghe điều hướng từ Yêu thích)
+  useEffect(() => {
+    if (route.params?.city) {
+      const cityFromFavorite = route.params.city;
+      setSearchQuery(cityFromFavorite);
+      fetchWeather(cityFromFavorite, false);
+      navigation.setParams({ city: undefined });
+    }
+  }, [route.params?.city]);
+
+  // (Cập nhật ngôi sao)
+  useEffect(() => {
+    if (weatherData && weatherData.current) {
+      const cityName = weatherData.current.name;
+      const checkFav = favorites.some((fav) => fav.city_name === cityName);
+      setIsFavorite(checkFav);
+    } else {
+      setIsFavorite(false);
+    }
+  }, [weatherData, favorites]);
+
+  // (Tự động refresh 5 phút)
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      if (weatherData && weatherData.current && weatherData.current.name) {
+        fetchWeather(weatherData.current.name, true);
+      }
+    }, 300000);
+    return () => clearInterval(intervalId);
+  }, [weatherData]);
+
+  // (Cập nhật "Time Ago")
+  useEffect(() => {
+    const updateTimeAgo = () => {
+      if (!lastUpdated) {
+        setTimeAgo("");
+        return;
+      }
+      const now = Date.now();
+      const minutesAgo = Math.round((now - lastUpdated) / 60000);
+      if (minutesAgo < 1) setTimeAgo("vừa xong");
+      else if (minutesAgo === 1) setTimeAgo("cập nhật 1 phút trước");
+      else if (minutesAgo < 60) setTimeAgo(`cập nhật ${minutesAgo} phút trước`);
+      else {
+        const hoursAgo = Math.floor(minutesAgo / 60);
+        setTimeAgo(`cập nhật ${hoursAgo} giờ trước`);
+      }
+    };
+    updateTimeAgo();
+    const intervalId = setInterval(updateTimeAgo, 60000);
+    return () => clearInterval(intervalId);
+  }, [lastUpdated]);
 
   // Giao diện Loading ban đầu
   if (isInitialLoading) {
@@ -385,8 +412,8 @@ const WeatherScreen = ({ navigation, route }) => {
             <RefreshControl
               refreshing={isRefreshing}
               onRefresh={onRefresh}
-              tintColor={"#000000"} // Màu spinner (cho iOS trên nền gradient)
-              colors={["#000000"]} // Màu spinner (cho Android)
+              tintColor={isDarkMode ? "#FFFFFF" : "#000000"}
+              colors={isDarkMode ? ["#FFFFFF"] : ["#000000"]}
             />
           }
         >
@@ -439,7 +466,7 @@ const WeatherScreen = ({ navigation, route }) => {
                 </TouchableOpacity>
               </View>
 
-              {/* <<< SỬA LỖI F6: Thay đổi điều kiện hiển thị >>> */}
+              {/* Thông báo GPS (đã sửa logic) */}
               {isGpsLocation && (
                 <Text
                   style={[

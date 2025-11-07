@@ -1,5 +1,4 @@
 import React, { useContext } from "react";
-// <<< THÊM 1: Import DefaultTheme và DarkTheme >>>
 import {
   NavigationContainer,
   DefaultTheme,
@@ -10,27 +9,25 @@ import { AuthContext } from "../context/AuthContext";
 
 import LoginScreen from "../screens/LoginScreen";
 import RegisterScreen from "../screens/RegisterScreen";
-import MainTabNavigator from "./MainTabNavigator";
+import MainTabNavigator from "./MainTabNavigator"; // Đây là app chính (3 tab)
 import { View, ActivityIndicator, StyleSheet } from "react-native";
 import { StatusBar } from "expo-status-bar";
 
 const Stack = createNativeStackNavigator();
 
 const AppNavigator = () => {
-  const { userToken, isLoading, theme } = useContext(AuthContext);
+  // <<< XÓA: Không cần userToken ở đây nữa
+  const { isLoading, theme } = useContext(AuthContext);
 
-  // <<< THÊM 2: Tạo chủ đề (theme) cho navigation >>>
-  // Tùy chỉnh theme của React Navigation để khớp với app
+  // Tùy chỉnh theme cho navigation (Giữ nguyên)
   const isDarkMode = theme === "dark";
   const navigationTheme = {
-    ...(isDarkMode ? DarkTheme : DefaultTheme), // Dùng theme gốc
+    ...(isDarkMode ? DarkTheme : DefaultTheme),
     colors: {
       ...(isDarkMode ? DarkTheme.colors : DefaultTheme.colors),
-      // Ghi đè màu nền chính để khớp với màu nền app của bạn
       background: isDarkMode ? "#121212" : "#F0F4F8",
     },
   };
-  // === HẾT THÊM 2 ===
 
   if (isLoading) {
     return (
@@ -40,34 +37,33 @@ const AppNavigator = () => {
     );
   }
 
+  // <<< SỬA: Thay đổi toàn bộ logic Stack.Navigator >>>
   return (
-    // <<< THÊM 3: Áp dụng theme vào NavigationContainer >>>
     <NavigationContainer theme={navigationTheme}>
       <StatusBar style={isDarkMode ? "light" : "dark"} />
 
       <Stack.Navigator>
-        {userToken == null ? (
-          // Luồng CHƯA đăng nhập
-          <>
-            <Stack.Screen
-              name="Login"
-              component={LoginScreen}
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen
-              name="Register"
-              component={RegisterScreen}
-              options={{ title: "Quay lại Đăng nhập" }}
-            />
-          </>
-        ) : (
-          // Luồng ĐÃ đăng nhập
+        {/* Nhóm 1: Ứng dụng chính (Luôn hiển thị) */}
+        <Stack.Screen
+          name="MainApp"
+          component={MainTabNavigator}
+          options={{ headerShown: false }}
+        />
+
+        {/* Nhóm 2: Các màn hình "Modal" (Hiện đè lên trên) */}
+        <Stack.Group screenOptions={{ presentation: "modal" }}>
           <Stack.Screen
-            name="MainApp"
-            component={MainTabNavigator}
+            name="Login"
+            component={LoginScreen}
+            // Tắt header của modal (vì chúng ta sẽ tự tạo nút Đóng)
             options={{ headerShown: false }}
           />
-        )}
+          <Stack.Screen
+            name="Register"
+            component={RegisterScreen}
+            options={{ title: "Đăng ký" }} // Giữ header (để có nút Quay lại)
+          />
+        </Stack.Group>
       </Stack.Navigator>
     </NavigationContainer>
   );
